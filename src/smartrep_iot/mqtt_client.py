@@ -1,10 +1,10 @@
 import paho.mqtt.client as mqtt
 import json
-from config import THINGSBOARD_HOST, ACCESS_TOKEN
+from config import TB_BROKER, TB_PORT, TB_PI1_TOKEN
 
 client = mqtt.Client()
-client.username_pw_set(ACCESS_TOKEN)
-client.connect(THINGSBOARD_HOST, 1883, 60)
+client.username_pw_set(TB_PI1_TOKEN)
+client.connect(TB_BROKER, TB_PORT, 60)
 
 
 def publish(payload):
