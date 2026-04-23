@@ -5,11 +5,11 @@ from config import EQUIPMENT
 from adc import read_adc
 from led import setup_leds, update_led
 from session_manager import SessionManager
-from mqtt_client import publish
+#from mqtt_client import publish
 
 # Setup
 setup_leds(EQUIPMENT)
-session_mgr = SessionManager(EQUIPMENT)
+#session_mgr = SessionManager(EQUIPMENT)
 
 try:
     while True:
@@ -27,7 +27,7 @@ try:
             print(f"{name}: {value}")
 
         # Optional: publish all states together
-        publish(overall_state)
+        #publish(overall_state)
 
         print("-" * 30)
         time.sleep(0.5)
