@@ -2,11 +2,13 @@ import cv2
 import base64
 import time
 from openai import OpenAI
+from config import OPENAI_API_KEY
 import os
+
 
 # --- Configuration ---
 # Set your API Key
-client = OpenAI(api_key="YOUR_OPENAI_API_KEY")
+client = OpenAI(api_key=OPENAI_API_KEY)
 # Resolution reduction for speed
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
@@ -27,7 +29,7 @@ def analyze_frame(base64_image):
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Describe this scene briefly."},
+                        {"type": "text", "text": "You are a gym coach. Give concise, encouraging feedback in 3-4 sentences, about the posture. Evaluate whether the posture is correct."},
                         {
                             "type": "image_url",
                             "image_url": {
