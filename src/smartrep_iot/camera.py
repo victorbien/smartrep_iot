@@ -7,17 +7,14 @@ import json
 from datetime import datetime
 import paho.mqtt.client as mqtt
 from openai import OpenAI
-
-# ----------- MQTT SETUP -----------
-THINGSBOARD_HOST = "mqtt.thingsboard.cloud"
-ACCESS_TOKEN = "YOUR_PI2_ACCESS_TOKEN"
+from config import OPENAI_API_KEY, TB_BROKER, TB_PORT, TB_PI2_TOKEN
 
 mqtt_client = mqtt.Client()
-mqtt_client.username_pw_set(ACCESS_TOKEN)
-mqtt_client.connect(THINGSBOARD_HOST, 1883, 60)
+mqtt_client.username_pw_set(TB_PI2_TOKEN)
+mqtt_client.connect(TB_BROKER, TB_PORT, 60)
 
 # ----------- OPENAI SETUP -----------
-openai_client = OpenAI(api_key="YOUR_OPENAI_API_KEY")
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # ----------- MEDIAPIPE SETUP -----------
 mp_pose = mp.solutions.pose
