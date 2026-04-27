@@ -1,14 +1,15 @@
 import uuid
 from datetime import datetime
-#from mqtt_client import publish
+from mqtt_client import publish
+from config import EVENT, EQUIPMENT_NAME, SESSION_ID, START_TIME, END_TIME, SESSION_DURATION, OCCUPIED
 
 class SessionManager:
     def __init__(self, equipment):
         self.state = {
             name: {
-                "occupied": False,
-                "session_id": None,
-                "start_time": None
+                OCCUPIED: False,
+                SESSION_ID: None,
+                START_TIME: None
             }
             for name in equipment
         }
@@ -27,17 +28,17 @@ class SessionManager:
         start_time = datetime.utcnow()
 
         self.state[name].update({
-            "occupied": True,
-            "session_id": session_id,
-            "start_time": start_time
+            OCCUPIED: True,
+            SESSION_ID: session_id,
+            START_TIME: start_time
         })
 
-        #publish({
-        #    "event": "session_start",
-        #    "equipment": name,
-        #    "session_id": session_id,
-        #    "start_time": start_time.isoformat()
-        #})
+        publish({
+            EVENT: "session_start",
+            EQUIPMENT_NAME: name,
+            SESSION_ID: session_id,
+            START_TIME: start_time.isoformat()
+        })
 
         print(f"{name} → SESSION START")
 
@@ -47,19 +48,20 @@ class SessionManager:
 
         duration = (end_time - start_time).total_seconds()
 
-        #publish({
-        #    "event": "session_end",
-        #    "equipment": name,
-        #    "session_id": self.state[name]["session_id"],
-        #    "start_time": start_time.isoformat(),
-        #    "end_time": end_time.isoformat(),
-        #    "duration_s": duration
-        #})
+        publish({
+            EVENT: "session_end",
+            EQUIPMENT_NAME: name,
+            SESSION_ID: self.state[name]["session_id"],
+            START_TIME: start_time.isoformat(),
+            END_TIME: end_time.isoformat(),
+            SESSION_DURATION: duration
+        })
 
         print(f"{name} → SESSION END ({duration:.1f}s)")
 
         self.state[name] = {
-            "occupied": False,
-            "session_id": None,
-            "start_time": None
+            OCCUPIED: False,
+            SESSION_ID: None,
+            START_TIME: None
         }
+
