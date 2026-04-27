@@ -1,6 +1,6 @@
 from tracker import track_workout
 from ai_coach import generate_coaching
-from mqtt_client import publish   # <-- reuse your module
+from mqtt_client import publish
 
 def main():
 
