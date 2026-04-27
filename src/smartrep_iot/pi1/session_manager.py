@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from mqtt_client import publish
-from config import EVENT, EQUIPMENT_NAME, SESSION_ID, START_TIME, END_TIME, SESSION_DURATION, OCCUPIED
+from config import EVENT, EQUIPMENT_NAME, SESSION_ID, START_TIME, END_TIME, SESSION_DURATION, OCCUPIED, CHAIR
 
 class SessionManager:
     def __init__(self, equipment):
@@ -18,10 +18,14 @@ class SessionManager:
         prev = self.state[name]["occupied"]
 
         if not prev and occupied_now:
-            self.start_session(name)
+            if name != CHAIR:
+                self.start_session(name)
 
         elif prev and not occupied_now:
-            self.end_session(name)
+            if name == CHAIR:
+                self.start_session(name)
+            else:
+                self.end_session(name)
 
     def start_session(self, name):
         session_id = str(uuid.uuid4())
