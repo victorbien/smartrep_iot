@@ -2,6 +2,9 @@ import uuid
 from datetime import datetime
 from mqtt_client import publish
 from config import EVENT, EQUIPMENT_NAME, SESSION_ID, START_TIME, END_TIME, SESSION_DURATION, OCCUPIED, CHAIR
+import threading
+
+log_lock = threading.Lock()
 
 class SessionManager:
     def __init__(self, equipment):
@@ -44,7 +47,7 @@ class SessionManager:
             START_TIME: start_time.isoformat()
         })
 
-        print(f"{name} → SESSION START")
+        log("GYM EQUIPMENT", f"{name} → SESSION START")
 
     def end_session(self, name):
         end_time = datetime.utcnow()
@@ -61,7 +64,7 @@ class SessionManager:
             SESSION_DURATION: duration
         })
 
-        print(f"{name} → SESSION END ({duration:.1f}s)")
+        log("GYM EQUIPMENT", f"{name} → SESSION END ({duration:.1f}s)")
 
         self.state[name] = {
             OCCUPIED: False,
@@ -69,3 +72,7 @@ class SessionManager:
             START_TIME: None
         }
 
+
+def log(source, message):
+    with log_lock:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [{source}] {message}")
