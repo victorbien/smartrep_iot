@@ -1,154 +1,274 @@
 import cv2
-import mediapipe as mp
-import numpy as np
 import time
-from datetime import datetime
-import threading
+import uuid
+import numpy as np
+import mediapipe as mp
 
+from fsr import read_fsr
+from mqtt_client import publish
+from ai_coach import generate_coaching
+
+# -------------------------------
+# MEDIAPIPE INIT
+# -------------------------------
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose()
-log_lock = threading.Lock()
 
-# ----------------------------
-# CONFIG (IMAGE DIMENSIONS ADDED)
-# ----------------------------
-FRAME_WIDTH = 640
-FRAME_HEIGHT = 480
-
+# -------------------------------
+# HELPER: ANGLE
+# -------------------------------
 def calculate_angle(a, b, c):
-    a, b, c = np.array(a), np.array(b), np.array(c)
-    ba, bc = a - b, c - b
-    angle = np.arccos(
-        np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
-    )
-    return np.degrees(angle)
+    a = np.array(a)
+    b = np.array(b)
+    c = np.array(c)
 
+    ba = a - b
+    bc = c - b
 
-def log(msg):
-    """Centralized visible logging for demo clarity"""
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+    cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc))
+    angle = np.degrees(np.arccos(cosine_angle))
+    return angle
 
+# -------------------------------
+# DETECTORS
+# -------------------------------
+def detect_bicep_curl(landmarks):
+    shoulder = [landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].x,
+                landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER.value].y]
+    elbow = [landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW.value].x,
+             landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW.value].y]
+    wrist = [landmarks[mp_pose.PoseLandmark.RIGHT_WRIST.value].x,
+             landmarks[mp_pose.PoseLandmark.RIGHT_WRIST.value].y]
+
+    angle = calculate_angle(shoulder, elbow, wrist)
+
+    return angle
+
+def detect_squat(landmarks):
+    hip = [landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value].x,
+           landmarks[mp_pose.PoseLandmark.RIGHT_HIP.value].y]
+    knee = [landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value].x,
+            landmarks[mp_pose.PoseLandmark.RIGHT_KNEE.value].y]
+    ankle = [landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value].x,
+             landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE.value].y]
+
+    angle = calculate_angle(hip, knee, ankle)
+
+    return angle
 
 def track_workout():
-    log("CAMERA", "Initializing workout tracking system...")
+    # -------------------------------
+    # CONFIG
+    # -------------------------------
+    MAX_SETS = 3
+    REPS_PER_SET = 12
+    SESSION_TIMEOUT = 10
 
-    session_data = {
-        "exercise": "bicep_curl",
-        "sets": 0,
-        "reps_per_set": [],
-        "events": [],
-        "start_time": datetime.utcnow().isoformat(),
-        "end_time": None
-    }
+    angles_per_rep = []
+    current_rep_angles = []
 
-    cap = cv2.VideoCapture("/dev/video1")
+    EXERCISE_TYPE = "bicep_curl"  # or "squat"
 
-    # ----------------------------
-    # CAMERA INIT LOGS
-    # ----------------------------
+    # -------------------------------
+    # STATE
+    # -------------------------------
+    session_active = False
+    session_id = None
+
+    set_count = 0
+    rep_count = 0
+    bad_reps = 0
+
+    last_activity_time = 0
+    prev_pressure = 0
+    lift_detected = False
+
+    stage = None  # "up" / "down"
+
+    # -------------------------------
+    # CAMERA INIT
+    # -------------------------------
+    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+
     if not cap.isOpened():
-        log("CAMERA", "ERROR: Camera failed to open")
-        exit()
+        raise RuntimeError("Camera failed to open")
 
-    log("CAMERA", "Camera successfully opened")
-
-    # Set image dimensions (IMPORTANT FOR CONSISTENCY)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
-
-    log("CAMERA", f"Frame size set to {FRAME_WIDTH}x{FRAME_HEIGHT}")
-
-    current_reps = 0
-    stage = None
-    last_rep_time = time.time()
-
-    log("CAMERA", "Starting pose detection loop...")
-
+    # -------------------------------
+    # MAIN LOOP
+    # -------------------------------
     while True:
-        ret, frame = cap.read()
+        pressure = read_fsr()
+        current_time = time.time()
 
+        # ---------------------------
+        # SESSION START
+        # ---------------------------
+        if pressure and not session_active:
+            session_active = True
+            session_id = str(uuid.uuid4())
+
+            set_count = 0
+            rep_count = 0
+            bad_reps = 0
+            stage = None
+
+            print(f"Session started: {session_id}")
+
+        # ---------------------------
+        # ACTIVITY TRACKING
+        # ---------------------------
+        if pressure:
+            last_activity_time = current_time
+
+        # ---------------------------
+        # FSR LIFT-RETURN END
+        # ---------------------------
+        if prev_pressure == 1 and pressure == 0:
+            lift_detected = True
+
+        if lift_detected and pressure == 1:
+            print("Lift-return detected → session end")
+            session_active = False
+
+        prev_pressure = pressure
+
+        # ---------------------------
+        # CAMERA FRAME
+        # ---------------------------
+        ret, frame = cap.read()
         if not ret:
-            log("CAMERA", "WARNING: Camera read failed, retrying...")
-            time.sleep(0.5)
+            print("Camera read failed")
             continue
 
-        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = pose.process(image)
+        # ---------------------------
+        # TRACKING
+        # ---------------------------
+        if session_active:
+            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = pose.process(image)
 
-        # ----------------------------
-        # POSE DETECTION LOG
-        # ----------------------------
-        if results.pose_landmarks:
-            log("CAMERA", "Pose detected")
-            movement_detected = True
+            if results.pose_landmarks:
+                landmarks = results.pose_landmarks.landmark
 
-            landmarks = results.pose_landmarks.landmark
+                if EXERCISE_TYPE == "bicep_curl":
+                    angle = detect_bicep_curl(landmarks)
+                    
+                    current_rep_angles.append(angle)
 
-            shoulder = [landmarks[12].x, landmarks[12].y]
-            elbow = [landmarks[14].x, landmarks[14].y]
-            wrist = [landmarks[16].x, landmarks[16].y]
+                    # Rep logic
+                    if angle > 160:
+                        stage = "down"
+                    if angle < 45 and stage == "down":
+                        stage = "up"
+                        rep_count += 1
+                        print(f"Rep: {rep_count}")
+                        
+                        # Save angles for this rep
+                        if current_rep_angles:
+                            rep_summary = {
+                                "rep": rep_count,
+                                "min": min(current_rep_angles),
+                                "max": max(current_rep_angles)
+                            }
+                            
+                            angles_per_rep.append(rep_summary)
 
-            angle = calculate_angle(shoulder, elbow, wrist)
+                    # Bad form
+                    if angle > 170:
+                        bad_reps += 1
 
-            log("CAMERA", f"Elbow angle: {angle:.2f}")
+                elif EXERCISE_TYPE == "squat":
+                    angle = detect_squat(landmarks)
+                    
+                    current_rep_angles.append(angle)
 
-            # Rep logic
-            if angle < 50:
-                stage = "up"
-                movement_detected = True
-                log("CAMERA", "Stage: UP position detected")
+                    if angle > 160:
+                        stage = "up"
+                    if angle < 70 and stage == "up":
+                        stage = "down"
+                        rep_count += 1
+                        print(f"Rep: {rep_count}")
+                        
+                        # Save angles for this rep
+                        if current_rep_angles:
+                            rep_summary = {
+                                "rep": rep_count,
+                                "min": min(current_rep_angles),
+                                "max": max(current_rep_angles)
+                            }
+                            
+                            angles_per_rep.append(rep_summary)
 
-            if angle > 150 and stage == "up":
-                stage = "down"
-                current_reps += 1
-                last_rep_time = time.time()
+                    if angle > 175:
+                        bad_reps += 1
 
+                # -------------------
+                # SET CONTROL
+                # -------------------
+                if rep_count >= REPS_PER_SET:
+                    set_count += 1
+                    rep_count = 0
+                    print(f"Set {set_count} completed")
 
-                movement_detected = True
-                log("CAMERA", f"REP COUNTED → Total reps: {current_reps}")
+                if set_count >= MAX_SETS:
+                    print("Workout completed")
+                    session_active = False
 
-                session_data["events"].append({
-                    "type": "rep",
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "angle": angle
-                })
+        # ---------------------------
+        # DISPLAY
+        # ---------------------------
+        cv2.imshow("Tracking", frame)
 
-        # ----------------------------
-        # SET DETECTION LOG
-        # ----------------------------
-        if time.time() - last_rep_time > 20 and current_reps > 0:
-            session_data["sets"] += 1
-            session_data["reps_per_set"].append(current_reps)
+        # ---------------------------
+        # MANUAL END
+        # ---------------------------
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("Manual stop")
+            session_active = False
 
-            log("CAMERA", f"SET COMPLETED → Set {session_data['sets']} | Reps: {current_reps}")
+        # ---------------------------
+        # TIMEOUT END
+        # ---------------------------
+        if session_active and (current_time - last_activity_time > SESSION_TIMEOUT):
+            print("Session timeout")
+            session_active = False
 
-            session_data["events"].append({
-                "type": "set_complete",
-                "timestamp": datetime.utcnow().isoformat(),
-                "reps": current_reps
+        # ---------------------------
+        # AI COACHING
+        # ---------------------------
+        if not session_active and session_id is not None:
+            print("Triggering AI Coaching...")
+
+            session_data = {
+                "exercise": EXERCISE_TYPE,
+                "sets": set_count,
+                "reps_per_set": rep_count,
+                "bad_reps": bad_reps,
+                "form_score": max(0, 100 - bad_reps * 10),
+                "angle_data": angles_per_rep
+            }
+
+            feedback = generate_coaching(session_data)
+
+            publish({
+                "session_id": session_id,
+                "exercise": EXERCISE_TYPE,
+                "sets": set_count,
+                "reps_per_set": rep_count,
+                "bad_reps": bad_reps,
+                "feedback": feedback
             })
 
-            current_reps = 0
-            last_rep_time = time.time()
+            print("AI Coaching Complete")
 
-        # ----------------------------
-        # EXIT CONDITION LOG
-        # ----------------------------
-        key = cv2.waitKey(10) & 0xFF
-        if key == ord('q'):
-            log("CAMERA", "Manual stop triggered by user")
-            break
+            # RESET
+            session_id = None
+            lift_detected = False
+            time.sleep(2)
 
+    # -------------------------------
+    # CLEANUP
+    # -------------------------------
     cap.release()
     cv2.destroyAllWindows()
 
-    session_data["end_time"] = datetime.utcnow().isoformat()
-
-    log("CAMERA", "Workout session ended successfully")
-
-    return session_data
-
-
-def log(source, message):
-    with log_lock:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] [{source}] {message}")
