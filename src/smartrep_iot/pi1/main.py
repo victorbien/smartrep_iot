@@ -86,7 +86,6 @@ def sensor_led_thread():
 # MAIN
 # ------------------------
 def main():
-
     t1 = threading.Thread(target=workout_thread)
     t2 = threading.Thread(target=sensor_led_thread)
 
