@@ -9,10 +9,12 @@ from ai_coach import generate_coaching
 from config import SESSION_ID, START_TIME
 from mqtt_client import publish
 
+from config import NO_OF_MAX_SETS, NO_OF_MAX_REPS, BICEP_CURL, SQUAT, SESSION_ID, EXERCISE, SETS, REPS_PER_SET, BAD_REPS, FORM_SCORE, ANGLE_DATA, START_TIME, END_TIME, STAGE, CURRENT_REPS, CURRENT_REP_ANGLES, REP_EVENTS, MOTION_SCORE, TARGET_REACHED_LOGGED, COACHING_SUMMARY
+
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose()
 
-SUPPORTED_EXERCISES = ("bicep_curl", "squat")
+SUPPORTED_EXERCISES = (BICEP_CURL, SQUAT)
 
 
 def calculate_angle(a, b, c):
@@ -82,98 +84,98 @@ def detect_squat_angle(landmarks):
 
 def create_empty_session_data(session):
     return {
-        "session_id": session[SESSION_ID],
-        "exercise": "unknown",
-        "sets": 0,
-        "reps_per_set": [],
-        "bad_reps": 0,
-        "form_score": None,
-        "angle_data": [],
+        SESSION_ID: session[SESSION_ID],
+        EXERCISE: "unknown",
+        SETS: 0,
+        REPS_PER_SET: [],
+        BAD_REPS: 0,
+        FORM_SCORE: None,
+        ANGLE_DATA: [],
         # The sensor loop is the source of truth for when the shared
         # dumbbell session started, so the camera reuses that timestamp.
-        "start_time": session[START_TIME].isoformat(),
-        "end_time": None,
+        START_TIME: session[START_TIME].isoformat(),
+        END_TIME: None,
     }
 
 
 def create_exercise_state():
     return {
-        "stage": None,
-        "current_reps": 0,
-        "sets": 0,
-        "reps_per_set": [],
-        "bad_reps": 0,
-        "angle_data": [],
-        "current_rep_angles": [],
-        "rep_events": 0,
-        "motion_score": 0,
-        "target_reached_logged": False,
+        STAGE: None,
+        CURRENT_REPS: 0,
+        SETS: 0,
+        REPS_PER_SET: [],
+        BAD_REPS: 0,
+        ANGLE_DATA: [],
+        CURRENT_REP_ANGLES: [],
+        REP_EVENTS: 0,
+        MOTION_SCORE: 0,
+        TARGET_REACHED_LOGGED: False,
     }
 
 
 def finalize_set(exercise_state):
-    if exercise_state["current_reps"] <= 0:
+    if exercise_state[CURRENT_REPS] <= 0:
         return
 
-    exercise_state["sets"] += 1
-    exercise_state["reps_per_set"].append(exercise_state["current_reps"])
-    exercise_state["current_reps"] = 0
+    exercise_state[SETS] += 1
+    exercise_state[REPS_PER_SET].append(exercise_state["current_reps"])
+    exercise_state[CURRENT_REPS] = 0
 
 
 def register_rep(exercise_state, rep_quality_check, exer_type):
-    exercise_state["current_reps"] += 1
-    exercise_state["rep_events"] += 1
+    exercise_state[CURRENT_REPS] += 1
+    exercise_state[REP_EVENTS] += 1
 
     rep_summary = {
-        "rep": exercise_state["current_reps"],
-        "min": min(exercise_state["current_rep_angles"]),
-        "max": max(exercise_state["current_rep_angles"]),
+        "rep": exercise_state[CURRENT_REPS],
+        "min": min(exercise_state[CURRENT_REP_ANGLES]),
+        "max": max(exercise_state[CURRENT_REP_ANGLES]),
     }
-    exercise_state["angle_data"].append(rep_summary)
-    exercise_state["current_rep_angles"] = []
+    exercise_state[ANGLE_DATA].append(rep_summary)
+    exercise_state[CURRENT_REP_ANGLES] = []
 
     if not rep_quality_check(rep_summary):
-        exercise_state["bad_reps"] += 1
+        exercise_state[BAD_REPS] += 1
 
-    print(f"{exer_type} - Rep: {exercise_state['current_reps']}")
+    print(f"{exer_type} - Rep: {exercise_state[CURRENT_REPS]}")
 
 
 def update_bicep_curl_state(exercise_state, angle):
-    exercise_state["current_rep_angles"].append(angle)
+    exercise_state[CURRENT_REP_ANGLES].append(angle)
 
     if angle > 145:
-        exercise_state["stage"] = "down"
-        exercise_state["motion_score"] += 1
+        exercise_state[STAGE] = "down"
+        exercise_state[MOTION_SCORE] += 1
 
-    if angle < 55 and exercise_state["stage"] == "down":
-        exercise_state["stage"] = "up"
+    if angle < 55 and exercise_state[STAGE] == "down":
+        exercise_state[STAGE] = "up"
         register_rep(
             exercise_state,
             lambda rep_summary: rep_summary["min"] <= 70 and rep_summary["max"] >= 140,
-            "BICEP CURL"
+            BICEP_CURL
         )
 
 
 def update_squat_state(exercise_state, angle):
-    exercise_state["current_rep_angles"].append(angle)
+    exercise_state[CURRENT_REP_ANGLES].append(angle)
 
     if angle > 155:
-        exercise_state["stage"] = "up"
-        exercise_state["motion_score"] += 1
+        exercise_state[STAGE] = "up"
+        exercise_state[MOTION_SCORE] += 1
 
-    if angle < 95 and exercise_state["stage"] == "up":
-        exercise_state["stage"] = "down"
+    if angle < 95 and exercise_state[STAGE] == "up":
+        exercise_state[STAGE] = "down"
         register_rep(
             exercise_state,
             lambda rep_summary: rep_summary["min"] <= 105 and rep_summary["max"] >= 145,
-            "SQUAT"
+            SQUAT
         )
 
 
 def maybe_finalize_target_set(exercise_name, exercise_state, reps_per_set_target):
-    if exercise_state["current_reps"] >= reps_per_set_target:
+    if exercise_state[CURRENT_REPS] >= reps_per_set_target:
         finalize_set(exercise_state)
-        print(f"{exercise_name} set {exercise_state['sets']} completed")
+        print(f"{exercise_name} set {exercise_state[SETS]} completed")
 
 
 def choose_dominant_exercise(exercise_states):
@@ -182,8 +184,8 @@ def choose_dominant_exercise(exercise_states):
     ranked = sorted(
         SUPPORTED_EXERCISES,
         key=lambda exercise_name: (
-            exercise_states[exercise_name]["rep_events"],
-            exercise_states[exercise_name]["motion_score"],
+            exercise_states[exercise_name][REP_EVENTS],
+            exercise_states[exercise_name][MOTION_SCORE],
         ),
         reverse=True,
     )
@@ -193,12 +195,12 @@ def choose_dominant_exercise(exercise_states):
 def build_session_summary(session_data, chosen_exercise, exercise_state):
     finalize_set(exercise_state)
 
-    session_data["exercise"] = chosen_exercise
-    session_data["sets"] = exercise_state["sets"]
-    session_data["reps_per_set"] = exercise_state["reps_per_set"]
-    session_data["bad_reps"] = exercise_state["bad_reps"]
-    session_data["angle_data"] = exercise_state["angle_data"]
-    session_data["form_score"] = max(0, 100 - exercise_state["bad_reps"] * 10)
+    session_data[EXERCISE] = chosen_exercise
+    session_data[SETS] = exercise_state[SETS]
+    session_data[REPS_PER_SET] = exercise_state[REPS_PER_SET]
+    session_data[BAD_REPS] = exercise_state[BAD_REPS]
+    session_data[ANGLE_DATA] = exercise_state[ANGLE_DATA]
+    session_data[FORM_SCORE] = max(0, 100 - exercise_state[BAD_REPS] * 10)
 
     return session_data
 
@@ -208,29 +210,29 @@ def build_workout_payload(session_data, coaching_summary):
         # This event reuses the shared dumbbell session id instead of
         # creating a second camera-only session.
         "event": "session_complete",
-        "session_id": session_data["session_id"],
-        "exercise": session_data["exercise"],
-        "sets": session_data["sets"],
-        "reps_per_set": session_data["reps_per_set"],
-        "bad_reps": session_data["bad_reps"],
-        "form_score": session_data["form_score"],
-        "start_time": session_data["start_time"],
-        "end_time": session_data["end_time"],
-        "coaching_summary": coaching_summary,
+        SESSION_ID: session_data[SESSION_ID],
+        EXERCISE: session_data[EXERCISE],
+        SETS: session_data[SETS],
+        REPS_PER_SET: session_data[REPS_PER_SET],
+        BAD_REPS: session_data[BAD_REPS],
+        FORM_SCORE: session_data[FORM_SCORE],
+        START_TIME: session_data[START_TIME],
+        END_TIME: session_data[END_TIME],
+        COACHING_SUMMARY: coaching_summary,
     }
 
 
 def initialize_session_tracking(session):
     exercise_states = {
-        "bicep_curl": create_exercise_state(),
-        "squat": create_exercise_state(),
+        BICEP_CURL: create_exercise_state(),
+        SQUAT: create_exercise_state(),
     }
     return create_empty_session_data(session), exercise_states
 
 
 def track_workout(session_manager):
-    max_sets = 1
-    reps_per_set_target = 3
+    max_sets = NO_OF_MAX_SETS
+    reps_per_set_target = NO_OF_MAX_REPS
     active_session_id = None
     session_data = None
     exercise_states = None
@@ -303,9 +305,9 @@ def track_workout(session_manager):
                     # We lock onto the first exercise that shows a clear
                     # movement pattern so one dumbbell session maps to one
                     # workout type in the telemetry.
-                    if chosen_state["rep_events"] >= 2:
+                    if chosen_state[REP_EVENTS] >= 2:
                         locked_exercise = chosen_exercise
-                        session_data["exercise"] = chosen_exercise
+                        session_data[EXERCISE] = chosen_exercise
                         print(f"Detected exercise: {chosen_exercise}")
 
                 active_exercise = locked_exercise or choose_dominant_exercise(exercise_states)
@@ -317,9 +319,9 @@ def track_workout(session_manager):
                     reps_per_set_target,
                 )
 
-                if active_state["sets"] >= max_sets and not active_state["target_reached_logged"]:
+                if active_state[SETS] >= max_sets and not active_state[TARGET_REACHED_LOGGED]:
                     print("Workout set target reached; waiting for dumbbells to return")
-                    active_state["target_reached_logged"] = True
+                    active_state[TARGET_REACHED_LOGGED] = True
 
             cv2.imshow("Tracking", frame)
 
