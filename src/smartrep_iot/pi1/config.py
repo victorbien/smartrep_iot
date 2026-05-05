@@ -9,6 +9,7 @@ MQTT_TOPIC = "v1/devices/me/telemetry"
 #Equipment Name
 DUMBBELL_LEFT = "dumbbell_left"
 DUMBBELL_RIGHT = "dumbbell_right"
+DUMBBELL_PAIR = "dumbbell_pair"
 FOAM_ROLLER = "foam_roller"
 CHAIR = "chair"
 
@@ -43,4 +44,3 @@ EQUIPMENT = {
     FOAM_ROLLER: {CHANNEL: 2, THRESHOLD: 100, LED_GREEN: 24, LED_RED: 23},
     CHAIR: {CHANNEL: 3, THRESHOLD: 100, LED_GREEN: 5, LED_RED: 6},
 }
-
